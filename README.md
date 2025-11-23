@@ -295,3 +295,4 @@ Final Project - Multi-Agent Financial AI Trading System
 **Удачи с защитой проекта! 🚀**
 
 # INF-451-final
+# INF-451-final
