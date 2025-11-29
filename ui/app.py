@@ -14,6 +14,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.coordinator import AgentCoordinator
 from models.train_model import train_model, prepare_training_data
+from auth.middleware import get_current_user, show_login_page
+from database.db_manager import DBManager
 import numpy as np
 
 
@@ -32,12 +34,38 @@ if 'cycle_results' not in st.session_state:
     st.session_state.cycle_results = []
 if 'model_metrics' not in st.session_state:
     st.session_state.model_metrics = None
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = None
+if 'username' not in st.session_state:
+    st.session_state.username = None
+
+
+# Проверка авторизации
+user = get_current_user()
+
+if not user:
+    # Показываем страницу логина
+    show_login_page()
+    st.stop()
+else:
+    # Пользователь авторизован
+    st.session_state.authenticated = True
+    st.session_state.user_id = user['user_id']
+    st.session_state.username = user['username']
 
 
 def init_coordinator(ticker: str, initial_balance: float):
     """Инициализирует координатор агентов"""
+    user_id = st.session_state.user_id
     if st.session_state.coordinator is None or st.session_state.coordinator.ticker != ticker:
-        st.session_state.coordinator = AgentCoordinator(ticker=ticker, initial_balance=initial_balance)
+        st.session_state.coordinator = AgentCoordinator(
+            ticker=ticker, 
+            initial_balance=initial_balance,
+            user_id=user_id,
+            use_db=True
+        )
         st.session_state.cycle_results = []
 
 
@@ -45,11 +73,28 @@ def init_coordinator(ticker: str, initial_balance: float):
 with st.sidebar:
     st.title("⚙️ Настройки")
     
+    # Информация о пользователе
+    st.info(f"👤 Пользователь: **{st.session_state.username}**")
+    
+    if st.button("🚪 Выйти"):
+        # Очищаем session state
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+    
+    st.divider()
+    
     ticker = st.text_input("Тикер акции", value="AAPL", help="Например: AAPL, TSLA, MSFT")
-    initial_balance = st.number_input("Начальный баланс ($)", min_value=1000, value=10000, step=1000)
+    
+    # Получаем текущий баланс из БД
+    db_manager = DBManager()
+    portfolio = db_manager.get_portfolio(st.session_state.user_id)
+    current_balance = portfolio['balance'] if portfolio else 10000.0
+    
+    st.info(f"💰 Текущий баланс: **${current_balance:.2f}**")
     
     if st.button("🔄 Инициализировать систему"):
-        init_coordinator(ticker, initial_balance)
+        init_coordinator(ticker, current_balance)
         st.success(f"Система инициализирована для {ticker}")
     
     st.divider()
@@ -466,7 +511,21 @@ elif page == "Trade History":
                 trade_history = trade_history.sort_values('timestamp')
                 
                 # Вычисляем P&L для каждой сделки
-                initial_balance = coordinator.execution_agent.initial_balance
+                # Получаем начальный баланс из БД
+                db_manager = DBManager()
+                portfolio = db_manager.get_portfolio(st.session_state.user_id)
+                initial_balance = portfolio['balance'] if portfolio else 10000.0
+                
+                # Вычисляем начальный баланс из истории (первая сделка)
+                if len(trade_history) > 0:
+                    first_trade = trade_history.iloc[0]
+                    if first_trade['action'] == 'BUY':
+                        # Если первая сделка - покупка, начальный баланс = balance_after + total
+                        initial_balance = first_trade['balance_after'] + first_trade['total']
+                    else:
+                        # Если первая сделка - продажа, начальный баланс = balance_after - total
+                        initial_balance = first_trade['balance_after'] - first_trade['total']
+                
                 cumulative_pnl = [0]
                 cumulative_balance = [initial_balance]
                 
@@ -529,7 +588,12 @@ elif page == "Trade History":
             with col4:
                 current_price = coordinator.market_agent.get_latest_price() or 0
                 portfolio_summary = coordinator.execution_agent.get_portfolio_summary(current_price)
-                st.metric("Текущий P&L", f"${portfolio_summary['pnl']:.2f}")
+                # Получаем начальный баланс из БД
+                db_manager = DBManager()
+                portfolio = db_manager.get_portfolio(st.session_state.user_id)
+                initial_balance = portfolio['balance'] if portfolio else 10000.0
+                current_pnl = portfolio_summary['portfolio_value'] - initial_balance
+                st.metric("Текущий P&L", f"${current_pnl:.2f}")
         else:
             st.info("История торгов пуста. Запустите симуляцию для начала торговли.")
 

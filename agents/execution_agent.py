@@ -11,29 +11,83 @@ import os
 class ExecutionAgent:
     """Агент для выполнения торговых операций"""
     
-    def __init__(self, initial_balance: float = 10000.0, data_dir: str = "data"):
+    def __init__(self, user_id: int, initial_balance: float = 10000.0, 
+                 data_dir: str = "data", use_db: bool = True):
         """
         Инициализация агента
         
         Args:
+            user_id: ID пользователя
             initial_balance: Начальный баланс портфеля
-            data_dir: Директория для сохранения данных
+            data_dir: Директория для сохранения данных (если не используется БД)
+            use_db: Использовать ли БД вместо CSV файлов
         """
+        self.user_id = user_id
         self.initial_balance = initial_balance
-        self.balance = initial_balance
-        self.portfolio = {}  # {ticker: {"shares": int, "avg_price": float}}
-        self.trade_history = []
-        self.data_dir = data_dir
-        self.history_file = os.path.join(data_dir, "history.csv")
+        self.use_db = use_db
         
-        # Создаем директорию если не существует
-        os.makedirs(data_dir, exist_ok=True)
+        if use_db:
+            # Используем БД
+            from database.db_manager import DBManager
+            self.db_manager = DBManager()
+            self._load_from_db()
+        else:
+            # Используем CSV (старый способ для обратной совместимости)
+            self.balance = initial_balance
+            self.portfolio = {}  # {ticker: {"shares": int, "avg_price": float}}
+            self.trade_history = []
+            self.data_dir = data_dir
+            self.history_file = os.path.join(data_dir, f"history_{user_id}.csv")
+            
+            # Создаем директорию если не существует
+            os.makedirs(data_dir, exist_ok=True)
+            
+            # Загружаем историю если существует
+            self.load_history()
+    
+    def _load_from_db(self):
+        """Загружает портфель из БД"""
+        portfolio_data = self.db_manager.get_portfolio(self.user_id)
         
-        # Загружаем историю если существует
-        self.load_history()
+        if portfolio_data:
+            self.balance = portfolio_data['balance']
+            # Сохраняем начальный баланс только при первом создании
+            # Если портфель уже существует, не меняем initial_balance
+            if not hasattr(self, 'initial_balance_set'):
+                # Пытаемся вычислить начальный баланс из истории
+                trade_history = self.db_manager.get_trade_history(self.user_id)
+                if not trade_history.empty:
+                    # Если есть история, вычисляем начальный баланс
+                    first_trade = trade_history.iloc[-1]  # Первая сделка (последняя в отсортированном списке)
+                    if first_trade['action'] == 'BUY':
+                        self.initial_balance = first_trade['balance_after'] + first_trade['total']
+                    else:
+                        self.initial_balance = first_trade['balance_after'] - first_trade['total']
+                else:
+                    # Если истории нет, используем текущий баланс
+                    self.initial_balance = self.balance
+                self.initial_balance_set = True
+        else:
+            # Создаем портфель если не существует
+            self.db_manager.create_portfolio(self.user_id, self.initial_balance)
+            self.balance = self.initial_balance
+            self.initial_balance_set = True
+        
+        # Загружаем холдинги
+        holdings = self.db_manager.get_holdings(self.user_id)
+        self.portfolio = {}
+        for holding in holdings:
+            self.portfolio[holding['ticker']] = {
+                "shares": holding['shares'],
+                "avg_price": holding['avg_price'],
+                "total_cost": holding['total_cost']
+            }
     
     def load_history(self):
-        """Загружает историю торгов из файла"""
+        """Загружает историю торгов из файла (только если use_db=False)"""
+        if self.use_db:
+            return  # Используем БД
+        
         if os.path.exists(self.history_file):
             try:
                 df = pd.read_csv(self.history_file)
@@ -44,7 +98,10 @@ class ExecutionAgent:
                 print(f"Error loading history: {e}")
     
     def _reconstruct_portfolio(self):
-        """Восстанавливает состояние портфеля из истории"""
+        """Восстанавливает состояние портфеля из истории (только если use_db=False)"""
+        if self.use_db:
+            return  # Используем БД
+        
         self.balance = self.initial_balance
         self.portfolio = {}
         
@@ -136,18 +193,35 @@ class ExecutionAgent:
                     self.portfolio[ticker]["avg_price"] = new_cost / new_shares
                     
                     # Записываем в историю
-                    trade_record = {
-                        "timestamp": datetime.now().isoformat(),
-                        "ticker": ticker,
-                        "action": "BUY",
-                        "shares": shares,
-                        "price": current_price,
-                        "total": cost,
-                        "balance_after": self.balance,
-                        "confidence": decision_data.get("confidence", 0)
-                    }
-                    self.trade_history.append(trade_record)
-                    self.save_history()
+                    confidence = decision_data.get("confidence", 0)
+                    
+                    if self.use_db:
+                        # Сохраняем в БД
+                        self.db_manager.add_trade(
+                            self.user_id, ticker, "BUY", shares, current_price,
+                            cost, self.balance, confidence
+                        )
+                        # Обновляем холдинг в БД
+                        self.db_manager.update_holding(
+                            self.user_id, ticker, new_shares, 
+                            self.portfolio[ticker]["avg_price"], new_cost
+                        )
+                        # Обновляем баланс в БД
+                        self.db_manager.update_portfolio_balance(self.user_id, self.balance)
+                    else:
+                        # Сохраняем в CSV
+                        trade_record = {
+                            "timestamp": datetime.now().isoformat(),
+                            "ticker": ticker,
+                            "action": "BUY",
+                            "shares": shares,
+                            "price": current_price,
+                            "total": cost,
+                            "balance_after": self.balance,
+                            "confidence": confidence
+                        }
+                        self.trade_history.append(trade_record)
+                        self.save_history()
                     
                     return {
                         "type": "execution_result",
@@ -187,18 +261,40 @@ class ExecutionAgent:
                         del self.portfolio[ticker]
                     
                     # Записываем в историю
-                    trade_record = {
-                        "timestamp": datetime.now().isoformat(),
-                        "ticker": ticker,
-                        "action": "SELL",
-                        "shares": shares_to_sell,
-                        "price": current_price,
-                        "total": revenue,
-                        "balance_after": self.balance,
-                        "confidence": decision_data.get("confidence", 0)
-                    }
-                    self.trade_history.append(trade_record)
-                    self.save_history()
+                    confidence = decision_data.get("confidence", 0)
+                    
+                    if self.use_db:
+                        # Сохраняем в БД
+                        self.db_manager.add_trade(
+                            self.user_id, ticker, "SELL", shares_to_sell, current_price,
+                            revenue, self.balance, confidence
+                        )
+                        # Обновляем или удаляем холдинг в БД
+                        remaining_shares = self.portfolio[ticker]["shares"]
+                        if remaining_shares > 0:
+                            remaining_cost = self.portfolio[ticker]["total_cost"] * (remaining_shares / (remaining_shares + shares_to_sell))
+                            self.db_manager.update_holding(
+                                self.user_id, ticker, remaining_shares,
+                                self.portfolio[ticker]["avg_price"], remaining_cost
+                            )
+                        else:
+                            self.db_manager.delete_holding(self.user_id, ticker)
+                        # Обновляем баланс в БД
+                        self.db_manager.update_portfolio_balance(self.user_id, self.balance)
+                    else:
+                        # Сохраняем в CSV
+                        trade_record = {
+                            "timestamp": datetime.now().isoformat(),
+                            "ticker": ticker,
+                            "action": "SELL",
+                            "shares": shares_to_sell,
+                            "price": current_price,
+                            "total": revenue,
+                            "balance_after": self.balance,
+                            "confidence": confidence
+                        }
+                        self.trade_history.append(trade_record)
+                        self.save_history()
                     
                     return {
                         "type": "execution_result",
@@ -281,22 +377,38 @@ class ExecutionAgent:
         }
     
     def save_history(self):
-        """Сохраняет историю торгов в CSV файл"""
+        """Сохраняет историю торгов в CSV файл (только если use_db=False)"""
+        if self.use_db:
+            return  # Используем БД
+        
         if self.trade_history:
             df = pd.DataFrame(self.trade_history)
             df.to_csv(self.history_file, index=False)
     
     def get_trade_history(self) -> pd.DataFrame:
         """Возвращает историю торгов в виде DataFrame"""
-        if not self.trade_history:
-            return pd.DataFrame()
-        return pd.DataFrame(self.trade_history)
+        if self.use_db:
+            return self.db_manager.get_trade_history(self.user_id)
+        else:
+            if not self.trade_history:
+                return pd.DataFrame()
+            return pd.DataFrame(self.trade_history)
     
     def reset_portfolio(self):
         """Сбрасывает портфель к начальному состоянию"""
-        self.balance = self.initial_balance
-        self.portfolio = {}
-        self.trade_history = []
-        if os.path.exists(self.history_file):
-            os.remove(self.history_file)
+        if self.use_db:
+            # Сбрасываем в БД
+            self.db_manager.update_portfolio_balance(self.user_id, self.initial_balance)
+            # Удаляем все холдинги
+            holdings = self.db_manager.get_holdings(self.user_id)
+            for holding in holdings:
+                self.db_manager.delete_holding(self.user_id, holding['ticker'])
+            # Перезагружаем из БД
+            self._load_from_db()
+        else:
+            self.balance = self.initial_balance
+            self.portfolio = {}
+            self.trade_history = []
+            if os.path.exists(self.history_file):
+                os.remove(self.history_file)
 

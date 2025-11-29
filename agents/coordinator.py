@@ -12,18 +12,31 @@ from .execution_agent import ExecutionAgent
 class AgentCoordinator:
     """Координатор для управления взаимодействием агентов"""
     
-    def __init__(self, ticker: str = "AAPL", initial_balance: float = 10000.0):
+    def __init__(self, ticker: str = "AAPL", initial_balance: float = 10000.0, 
+                 user_id: Optional[int] = None, use_db: bool = True):
         """
         Инициализация координатора
         
         Args:
             ticker: Тикер акции
             initial_balance: Начальный баланс портфеля
+            user_id: ID пользователя (обязательно если use_db=True)
+            use_db: Использовать ли БД вместо CSV
         """
         self.ticker = ticker
+        self.user_id = user_id
         self.market_agent = MarketMonitoringAgent(ticker)
         self.decision_agent = DecisionMakingAgent()
-        self.execution_agent = ExecutionAgent(initial_balance)
+        
+        # Если user_id не указан, используем старый способ (CSV)
+        if user_id is None:
+            use_db = False
+        
+        self.execution_agent = ExecutionAgent(
+            user_id=user_id if user_id else 0,
+            initial_balance=initial_balance,
+            use_db=use_db
+        )
         self.communication_log = []
     
     def log_communication(self, from_agent: str, to_agent: str, message: Dict):
