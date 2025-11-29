@@ -150,13 +150,72 @@ if page == "Overview":
     st.title("📈 Multi-Agent Trading System")
     st.markdown("### Обзор системы и портфеля")
     
+    # Автоматическая инициализация, если нужно
+    if st.session_state.coordinator is None and st.session_state.user_id:
+        from database.db_manager import DBManager
+        db_manager = DBManager()
+        portfolio = db_manager.get_portfolio(st.session_state.user_id)
+        current_balance = portfolio['balance'] if portfolio else 10000.0
+        init_coordinator(st.session_state.current_ticker, current_balance)
+        st.info(f"✅ Система автоматически инициализирована для {st.session_state.current_ticker}")
+        st.rerun()
+    
     if st.session_state.coordinator is None:
-        st.warning("⚠️ Пожалуйста, инициализируйте систему в боковой панели")
+        st.warning("⚠️ Система не инициализирована. Пожалуйста, подождите...")
     else:
         coordinator = st.session_state.coordinator
         
-        # Получаем данные рынка
-        df = coordinator.get_market_dataframe(period="3mo", interval="1d")
+        # Выбор периода данных
+        col_period, col_info = st.columns([1, 2])
+        
+        with col_period:
+            st.subheader("⚙️ Настройки графика")
+            period_options = {
+                "1 неделя": "5d",
+                "1 месяц": "1mo",
+                "3 месяца": "3mo",
+                "6 месяцев": "6mo",
+                "1 год": "1y",
+                "2 года": "2y",
+                "5 лет": "5y",
+                "Максимум": "max"
+            }
+            
+            selected_period_label = st.selectbox(
+                "Период данных",
+                options=list(period_options.keys()),
+                index=2,  # По умолчанию 3 месяца
+                help="Выберите период для отображения графика"
+            )
+            
+            selected_period = period_options[selected_period_label]
+            
+            # Выбор интервала
+            interval_options = {
+                "1 день": "1d",
+                "1 неделя": "1wk",
+                "1 месяц": "1mo"
+            }
+            
+            selected_interval_label = st.selectbox(
+                "Интервал",
+                options=list(interval_options.keys()),
+                index=0,  # По умолчанию 1 день
+                help="Интервал между точками данных"
+            )
+            
+            selected_interval = interval_options[selected_interval_label]
+        
+        with col_info:
+            st.info(f"""
+            **Выбранный период:** {selected_period_label}  
+            **Интервал:** {selected_interval_label}  
+            **Тикер:** {coordinator.ticker}
+            """)
+        
+        # Получаем данные рынка с выбранными параметрами
+        with st.spinner(f"Загрузка данных за {selected_period_label}..."):
+            df = coordinator.get_market_dataframe(period=selected_period, interval=selected_interval)
         
         if not df.empty:
             col1, col2, col3, col4 = st.columns(4)
