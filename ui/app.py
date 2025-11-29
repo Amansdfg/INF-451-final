@@ -102,7 +102,7 @@ with st.sidebar:
     st.subheader("📊 Навигация")
     page = st.radio(
         "Выберите страницу",
-        ["Overview", "Real-time Simulation", "ML Model", "Trade History"]
+        ["Overview", "Real-time Simulation", "ML Model", "Trade History", "Database Status"]
     )
 
 
@@ -596,6 +596,266 @@ elif page == "Trade History":
                 st.metric("Текущий P&L", f"${current_pnl:.2f}")
         else:
             st.info("История торгов пуста. Запустите симуляцию для начала торговли.")
+
+
+# Страница Database Status
+elif page == "Database Status":
+    st.title("🗄️ Database Status")
+    st.markdown("### Информация о подключении к базе данных")
+    
+    from database.db_manager import DBManager
+    import sqlite3
+    import os
+    
+    db = DBManager()
+    
+    # Информация о подключении
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📁 Информация о БД")
+        st.info(f"**Путь к БД:** `{db.db_path}`")
+        file_exists = os.path.exists(db.db_path)
+        st.info(f"**Файл существует:** {'✅ Да' if file_exists else '❌ Нет'}")
+        
+        if file_exists:
+            try:
+                file_size = os.path.getsize(db.db_path)
+                st.info(f"**Размер файла:** {file_size / 1024:.2f} KB")
+            except Exception as e:
+                st.warning(f"Не удалось получить размер: {e}")
+    
+    with col2:
+        st.subheader("🔌 Статус подключения")
+        try:
+            conn = db.get_connection()
+            cursor = conn.cursor()
+            
+            # Проверяем версию SQLite
+            cursor.execute("SELECT sqlite_version()")
+            sqlite_version = cursor.fetchone()[0]
+            st.success("✅ Подключение активно")
+            st.info(f"**SQLite версия:** {sqlite_version}")
+            
+            # Проверяем, можем ли мы выполнять запросы
+            cursor.execute("SELECT 1")
+            test_result = cursor.fetchone()
+            if test_result:
+                st.success("✅ Запросы выполняются успешно")
+            
+            conn.close()
+        except Exception as e:
+            st.error(f"❌ Ошибка подключения: {str(e)}")
+            st.code(str(e), language="text")
+    
+    st.divider()
+    
+    # Список таблиц и статистика
+    st.subheader("📊 Таблицы в базе данных")
+    
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Получаем список таблиц
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        tables = cursor.fetchall()
+        
+        if tables:
+            # Создаем DataFrame со статистикой
+            table_stats = []
+            for table in tables:
+                table_name = table[0]
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                count = cursor.fetchone()[0]
+                
+                # Получаем структуру таблицы
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns = cursor.fetchall()
+                
+                table_stats.append({
+                    "Таблица": table_name,
+                    "Записей": count,
+                    "Колонок": len(columns)
+                })
+            
+            stats_df = pd.DataFrame(table_stats)
+            st.dataframe(stats_df, use_container_width=True)
+            
+            st.divider()
+            
+            # Детальная информация по таблицам
+            for table in tables:
+                table_name = table[0]
+                with st.expander(f"📋 Детали таблицы: {table_name}"):
+                    # Показываем структуру
+                    cursor.execute(f"PRAGMA table_info({table_name})")
+                    columns = cursor.fetchall()
+                    
+                    st.write("**Структура:**")
+                    cols_df = pd.DataFrame([
+                        {
+                            "Колонка": col[1],
+                            "Тип": col[2],
+                            "NOT NULL": "Да" if col[3] else "Нет",
+                            "По умолчанию": col[4] or "-"
+                        }
+                        for col in columns
+                    ])
+                    st.dataframe(cols_df, use_container_width=True)
+                    
+                    # Показываем примеры данных (первые 5 записей)
+                    cursor.execute(f"SELECT * FROM {table_name} LIMIT 5")
+                    rows = cursor.fetchall()
+                    
+                    if rows:
+                        st.write("**Примеры данных (первые 5 записей):**")
+                        # Преобразуем в DataFrame
+                        data = [dict(row) for row in rows]
+                        # Скрываем пароли для безопасности
+                        if data and 'password_hash' in data[0]:
+                            for d in data:
+                                d['password_hash'] = '***скрыто***'
+                        st.dataframe(pd.DataFrame(data), use_container_width=True)
+                    else:
+                        st.info("Таблица пуста")
+        
+        conn.close()
+        
+    except Exception as e:
+        st.error(f"Ошибка при получении информации: {str(e)}")
+        st.code(str(e), language="text")
+    
+    st.divider()
+    
+    # Статистика по пользователям
+    st.subheader("👥 Статистика")
+    
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Количество пользователей
+        cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = cursor.fetchone()[0]
+        
+        # Количество портфелей
+        cursor.execute("SELECT COUNT(*) FROM portfolios")
+        portfolio_count = cursor.fetchone()[0]
+        
+        # Общий баланс всех портфелей
+        cursor.execute("SELECT SUM(balance) FROM portfolios")
+        total_balance = cursor.fetchone()[0] or 0
+        
+        # Количество сделок
+        cursor.execute("SELECT COUNT(*) FROM trade_history")
+        trade_count = cursor.fetchone()[0]
+        
+        # Количество холдингов
+        cursor.execute("SELECT COUNT(*) FROM holdings")
+        holdings_count = cursor.fetchone()[0]
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("👥 Пользователей", user_count)
+        with col2:
+            st.metric("💰 Портфелей", portfolio_count)
+        with col3:
+            st.metric("💵 Общий баланс", f"${total_balance:,.2f}")
+        with col4:
+            st.metric("📈 Сделок", trade_count)
+        with col5:
+            st.metric("📊 Холдингов", holdings_count)
+        
+        # Показываем пользователей (без паролей)
+        if user_count > 0:
+            st.subheader("📋 Список пользователей")
+            cursor.execute("SELECT id, username, email, created_at FROM users ORDER BY created_at DESC")
+            users = cursor.fetchall()
+            users_df = pd.DataFrame([dict(u) for u in users])
+            st.dataframe(users_df, use_container_width=True)
+        
+        conn.close()
+        
+    except Exception as e:
+        st.error(f"Ошибка при получении статистики: {str(e)}")
+        st.code(str(e), language="text")
+    
+    st.divider()
+    
+    # SQL запросы (опционально, для отладки)
+    st.subheader("🔍 SQL Запросы (для отладки)")
+    st.warning("⚠️ Используйте с осторожностью! Только SELECT запросы для безопасности.")
+    
+    sql_query = st.text_area(
+        "Введите SQL запрос:",
+        value="SELECT * FROM users LIMIT 5;",
+        height=100
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("▶️ Выполнить SELECT запрос"):
+            try:
+                if not sql_query.strip().upper().startswith('SELECT'):
+                    st.error("Разрешены только SELECT запросы для безопасности")
+                else:
+                    conn = db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute(sql_query)
+                    results = cursor.fetchall()
+                    
+                    if results:
+                        df = pd.DataFrame([dict(row) for row in results])
+                        # Скрываем пароли
+                        if 'password_hash' in df.columns:
+                            df['password_hash'] = '***скрыто***'
+                        st.dataframe(df, use_container_width=True)
+                        st.success(f"✅ Найдено записей: {len(results)}")
+                    else:
+                        st.info("Запрос выполнен, но результатов нет")
+                    conn.close()
+            except Exception as e:
+                st.error(f"Ошибка выполнения запроса: {str(e)}")
+                st.code(str(e), language="text")
+    
+    with col2:
+        if st.button("🔄 Обновить страницу"):
+            st.rerun()
+    
+    # Информация о текущем пользователе
+    st.divider()
+    st.subheader("👤 Текущая сессия")
+    st.info(f"**Ваш User ID:** {st.session_state.user_id}")
+    st.info(f"**Ваш Username:** {st.session_state.username}")
+    
+    # Показываем портфель текущего пользователя
+    try:
+        db_manager = DBManager()
+        portfolio = db_manager.get_portfolio(st.session_state.user_id)
+        if portfolio:
+            st.success(f"✅ Ваш портфель найден. Баланс: ${portfolio['balance']:.2f}")
+            
+            # Показываем холдинги
+            holdings = db_manager.get_holdings(st.session_state.user_id)
+            if holdings:
+                st.write("**Ваши холдинги:**")
+                holdings_df = pd.DataFrame([
+                    {
+                        "Тикер": h['ticker'],
+                        "Акций": h['shares'],
+                        "Средняя цена": f"${h['avg_price']:.2f}",
+                        "Общая стоимость": f"${h['total_cost']:.2f}"
+                    }
+                    for h in holdings
+                ])
+                st.dataframe(holdings_df, use_container_width=True)
+        else:
+            st.warning("⚠️ Портфель не найден")
+    except Exception as e:
+        st.error(f"Ошибка: {str(e)}")
+        st.code(str(e), language="text")
 
 
 # Footer
