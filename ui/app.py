@@ -40,6 +40,8 @@ if 'user_id' not in st.session_state:
     st.session_state.user_id = None
 if 'username' not in st.session_state:
     st.session_state.username = None
+if 'current_ticker' not in st.session_state:
+    st.session_state.current_ticker = "AAPL"  # Дефолтный тикер
 
 
 # Проверка авторизации
@@ -56,10 +58,14 @@ else:
     st.session_state.username = user['username']
 
 
-def init_coordinator(ticker: str, initial_balance: float):
+def init_coordinator(ticker: str, initial_balance: float, force_reinit: bool = False):
     """Инициализирует координатор агентов"""
     user_id = st.session_state.user_id
-    if st.session_state.coordinator is None or st.session_state.coordinator.ticker != ticker:
+    
+    # Автоматически инициализируем, если coordinator не существует или тикер изменился
+    if (st.session_state.coordinator is None or 
+        st.session_state.coordinator.ticker != ticker or 
+        force_reinit):
         st.session_state.coordinator = AgentCoordinator(
             ticker=ticker, 
             initial_balance=initial_balance,
@@ -67,6 +73,18 @@ def init_coordinator(ticker: str, initial_balance: float):
             use_db=True
         )
         st.session_state.cycle_results = []
+        st.session_state.current_ticker = ticker
+
+
+# Автоматическая инициализация при входе пользователя
+if st.session_state.user_id and st.session_state.coordinator is None:
+    from database.db_manager import DBManager
+    db_manager = DBManager()
+    portfolio = db_manager.get_portfolio(st.session_state.user_id)
+    current_balance = portfolio['balance'] if portfolio else 10000.0
+    
+    # Автоматически инициализируем с дефолтным тикером
+    init_coordinator(st.session_state.current_ticker, current_balance)
 
 
 # Sidebar
@@ -84,8 +102,6 @@ with st.sidebar:
     
     st.divider()
     
-    ticker = st.text_input("Тикер акции", value="AAPL", help="Например: AAPL, TSLA, MSFT")
-    
     # Получаем текущий баланс из БД
     db_manager = DBManager()
     portfolio = db_manager.get_portfolio(st.session_state.user_id)
@@ -93,9 +109,32 @@ with st.sidebar:
     
     st.info(f"💰 Текущий баланс: **${current_balance:.2f}**")
     
-    if st.button("🔄 Инициализировать систему"):
-        init_coordinator(ticker, current_balance)
-        st.success(f"Система инициализирована для {ticker}")
+    # Показываем текущий тикер
+    current_ticker = st.session_state.current_ticker if st.session_state.coordinator else "AAPL"
+    
+    ticker = st.text_input(
+        "Тикер акции", 
+        value=current_ticker, 
+        help="Например: AAPL, TSLA, MSFT. Система автоматически инициализируется при изменении."
+    )
+    
+    # Автоматически инициализируем при изменении тикера
+    if ticker != current_ticker:
+        init_coordinator(ticker, current_balance, force_reinit=True)
+        st.success(f"✅ Система автоматически инициализирована для {ticker}")
+        st.rerun()
+    
+    # Показываем статус системы
+    if st.session_state.coordinator:
+        st.success(f"✅ Система активна для тикера: **{st.session_state.coordinator.ticker}**")
+        
+        # Опциональная кнопка для принудительной переинициализации
+        if st.button("🔄 Переинициализировать систему", help="Принудительно перезапустить систему"):
+            init_coordinator(ticker, current_balance, force_reinit=True)
+            st.success(f"Система переинициализирована для {ticker}")
+            st.rerun()
+    else:
+        st.warning("⚠️ Система не инициализирована")
     
     st.divider()
     
@@ -231,8 +270,18 @@ elif page == "Real-time Simulation":
     st.title("🔄 Real-time Simulation")
     st.markdown("### Запуск агентов и мониторинг коммуникации")
     
+    # Автоматическая инициализация, если нужно
+    if st.session_state.coordinator is None and st.session_state.user_id:
+        from database.db_manager import DBManager
+        db_manager = DBManager()
+        portfolio = db_manager.get_portfolio(st.session_state.user_id)
+        current_balance = portfolio['balance'] if portfolio else 10000.0
+        init_coordinator(st.session_state.current_ticker, current_balance)
+        st.info(f"✅ Система автоматически инициализирована для {st.session_state.current_ticker}")
+        st.rerun()
+    
     if st.session_state.coordinator is None:
-        st.warning("⚠️ Пожалуйста, инициализируйте систему в боковой панели")
+        st.warning("⚠️ Система не инициализирована. Пожалуйста, подождите...")
     else:
         coordinator = st.session_state.coordinator
         
@@ -460,8 +509,18 @@ elif page == "Trade History":
     st.title("📜 Trade History")
     st.markdown("### История торгов и P&L")
     
+    # Автоматическая инициализация, если нужно
+    if st.session_state.coordinator is None and st.session_state.user_id:
+        from database.db_manager import DBManager
+        db_manager = DBManager()
+        portfolio = db_manager.get_portfolio(st.session_state.user_id)
+        current_balance = portfolio['balance'] if portfolio else 10000.0
+        init_coordinator(st.session_state.current_ticker, current_balance)
+        st.info(f"✅ Система автоматически инициализирована для {st.session_state.current_ticker}")
+        st.rerun()
+    
     if st.session_state.coordinator is None:
-        st.warning("⚠️ Пожалуйста, инициализируйте систему в боковой панели")
+        st.warning("⚠️ Система не инициализирована. Пожалуйста, подождите...")
     else:
         coordinator = st.session_state.coordinator
         
