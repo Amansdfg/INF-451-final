@@ -344,20 +344,91 @@ elif page == "Real-time Simulation":
     else:
         coordinator = st.session_state.coordinator
         
+        # Автоматическая торговля
+        st.subheader("🤖 Автоматическая торговля")
+        auto_trade_col1, auto_trade_col2, auto_trade_col3 = st.columns(3)
+        
+        with auto_trade_col1:
+            auto_trade_enabled = st.checkbox("🔄 Автоматическая торговля", 
+                                            value=st.session_state.get('auto_trade', False),
+                                            help="AI будет автоматически делать сделки каждые несколько секунд")
+        
+        with auto_trade_col2:
+            if auto_trade_enabled:
+                auto_interval = st.number_input("Интервал (секунды)", min_value=5, max_value=300, 
+                                               value=st.session_state.get('auto_interval', 10),
+                                               step=5)
+                st.session_state.auto_interval = auto_interval
+            else:
+                auto_interval = 10
+        
+        with auto_trade_col3:
+            if auto_trade_enabled:
+                max_cycles = st.number_input("Макс. циклов", min_value=1, max_value=1000, 
+                                           value=st.session_state.get('max_cycles', 100),
+                                           step=10)
+                st.session_state.max_cycles = max_cycles
+            else:
+                max_cycles = 100
+        
+        st.session_state.auto_trade = auto_trade_enabled
+        
+        # Ручное управление
         col1, col2 = st.columns([1, 3])
         
         with col1:
-            if st.button("▶️ Запустить цикл агентов", type="primary"):
-                with st.spinner("Выполняется цикл агентов..."):
-                    result = coordinator.run_cycle()
-                    st.session_state.cycle_results.append(result)
+            if not auto_trade_enabled:
+                if st.button("▶️ Запустить цикл агентов", type="primary"):
+                    with st.spinner("Выполняется цикл агентов..."):
+                        result = coordinator.run_cycle()
+                        st.session_state.cycle_results.append(result)
+                        st.rerun()
+            else:
+                st.info("🤖 Автоматическая торговля активна")
+                if st.button("⏸️ Остановить автоматическую торговлю"):
+                    st.session_state.auto_trade = False
                     st.rerun()
             
             if st.button("🔄 Сбросить систему"):
                 coordinator.reset_system()
                 st.session_state.cycle_results = []
+                st.session_state.auto_trade = False
                 st.success("Система сброшена")
                 st.rerun()
+        
+        # Автоматический запуск циклов
+        if auto_trade_enabled:
+            if 'auto_cycle_count' not in st.session_state:
+                st.session_state.auto_cycle_count = 0
+            if 'last_auto_cycle_time' not in st.session_state:
+                st.session_state.last_auto_cycle_time = datetime.now()
+            
+            current_time = datetime.now()
+            time_since_last = (current_time - st.session_state.last_auto_cycle_time).total_seconds()
+            
+            if st.session_state.auto_cycle_count < max_cycles:
+                if time_since_last >= auto_interval:
+                    # Время для следующего цикла
+                    with st.spinner(f"🤖 Автоматический цикл {st.session_state.auto_cycle_count + 1}/{max_cycles}..."):
+                        result = coordinator.run_cycle()
+                        st.session_state.cycle_results.append(result)
+                        st.session_state.auto_cycle_count += 1
+                        st.session_state.last_auto_cycle_time = datetime.now()
+                    st.rerun()
+                else:
+                    # Показываем обратный отсчет
+                    remaining = auto_interval - time_since_last
+                    st.info(f"⏳ Следующий цикл через {remaining:.1f} секунд... "
+                           f"(Цикл {st.session_state.auto_cycle_count + 1}/{max_cycles})")
+                    # Автоматически обновляем страницу через оставшееся время
+                    import time
+                    time.sleep(min(1.0, remaining))
+                    st.rerun()
+            else:
+                st.success(f"✅ Выполнено {max_cycles} автоматических циклов")
+                st.session_state.auto_trade = False
+                st.session_state.auto_cycle_count = 0
+                st.session_state.last_auto_cycle_time = None
         
         st.divider()
         
@@ -385,12 +456,37 @@ elif page == "Real-time Simulation":
                         "SELL": "🔴",
                         "HOLD": "🟡"
                     }
-                    st.markdown(f"**Решение:** {decision_color.get(decision['action'], '⚪')} {decision['action']}")
+                    
+                    # Проверяем, загружена ли модель
+                    model_status = "✅ Модель загружена" if coordinator.decision_agent.model is not None else "⚠️ Модель не загружена"
+                    st.caption(model_status)
+                    
+                    action = decision['action']
+                    price_diff = decision['predicted_price'] - decision['current_price']
+                    price_diff_pct = (price_diff / decision['current_price']) * 100 if decision['current_price'] > 0 else 0
+                    
+                    st.markdown(f"**Решение:** {decision_color.get(action, '⚪')} {action}")
+                    
+                    # Показываем разницу в цене с цветом
+                    if price_diff_pct > 0:
+                        diff_color = "🟢"
+                        diff_text = f"+{price_diff_pct:.2f}%"
+                    else:
+                        diff_color = "🔴"
+                        diff_text = f"{price_diff_pct:.2f}%"
+                    
                     st.json({
                         "Текущая цена": f"${decision['current_price']:.2f}",
                         "Предсказанная цена": f"${decision['predicted_price']:.2f}",
-                        "Уверенность": f"{decision['confidence']*100:.2f}%"
+                        "Изменение": f"{diff_color} {diff_text}",
+                        "Уверенность": f"{decision['confidence']*100:.1f}%"
                     })
+                    
+                    # Показываем качество предсказания
+                    if abs(price_diff_pct) < 1:
+                        st.info("💡 Предсказание близко к текущей цене - консервативное решение")
+                    elif abs(price_diff_pct) > 5:
+                        st.warning("⚠️ Большое изменение цены - проверьте предсказание")
                 
                 with col3:
                     st.markdown("#### ⚡ Execution Agent")

@@ -104,7 +104,7 @@ class DecisionMakingAgent:
     
     def predict(self, features: np.ndarray) -> float:
         """
-        Предсказывает будущую цену
+        Предсказывает будущую цену с улучшенной логикой
         
         Args:
             features: Признаки для модели
@@ -113,26 +113,52 @@ class DecisionMakingAgent:
             Предсказанная цена
         """
         if self.model is None:
-            # Если модель не загружена, возвращаем случайное предсказание
-            # (для демонстрации, когда модель еще не обучена)
-            return features[0, -2] * (1 + np.random.uniform(-0.02, 0.02))
+            # Если модель не загружена, возвращаем консервативное предсказание
+            current_price = features[0, -2] if len(features[0]) > 10 else features[0, -1]
+            return current_price * (1 + np.random.uniform(-0.01, 0.01))  # Очень маленькое изменение
         
         try:
-            prediction = self.model.predict(features)[0]
-            return float(prediction)
+            raw_prediction = self.model.predict(features)[0]
+            current_price = features[0, -2] if len(features[0]) > 10 else features[0, -1]
+            
+            # Сглаживание предсказания: если предсказание слишком сильно отличается,
+            # применяем консервативный подход
+            price_change_pct = (raw_prediction - current_price) / current_price if current_price > 0 else 0
+            
+            # Ограничиваем экстремальные предсказания (больше 10% изменения)
+            if abs(price_change_pct) > 0.10:
+                # Если предсказание слишком экстремальное, сглаживаем его
+                max_change = 0.10 if price_change_pct > 0 else -0.10
+                smoothed_prediction = current_price * (1 + max_change)
+            else:
+                smoothed_prediction = raw_prediction
+            
+            # Используем скользящее среднее с предыдущими предсказаниями для сглаживания
+            if len(self.decision_history) > 0:
+                # Берем последние 3 предсказания
+                recent_predictions = [d.get("predicted_price", current_price) 
+                                    for d in self.decision_history[-3:]]
+                if recent_predictions:
+                    avg_recent = np.mean(recent_predictions)
+                    # Взвешенное среднее: 70% новое предсказание, 30% среднее предыдущих
+                    smoothed_prediction = 0.7 * smoothed_prediction + 0.3 * avg_recent
+            
+            return float(smoothed_prediction)
         except Exception as e:
             print(f"Error in prediction: {e}")
-            return features[0, -2]  # Возвращаем текущую цену как fallback
+            current_price = features[0, -2] if len(features[0]) > 10 else features[0, -1]
+            return float(current_price)  # Возвращаем текущую цену как fallback
     
     def decide(self, current_price: float, predicted_price: float, 
-               threshold: float = 0.02) -> str:
+               threshold: float = 0.02, confidence: float = 0.0) -> str:
         """
-        Принимает решение на основе предсказания
+        Принимает решение на основе предсказания с улучшенной логикой
         
         Args:
             current_price: Текущая цена
             predicted_price: Предсказанная цена
-            threshold: Порог для принятия решения (2% по умолчанию)
+            threshold: Базовый порог для принятия решения (2% по умолчанию)
+            confidence: Уверенность модели (0-1)
         
         Returns:
             "BUY", "SELL" или "HOLD"
@@ -142,9 +168,25 @@ class DecisionMakingAgent:
         
         price_change_pct = (predicted_price - current_price) / current_price
         
-        if price_change_pct > threshold:
+        # Адаптивный порог: если уверенность низкая, увеличиваем порог
+        # Если уверенность высокая, можем снизить порог
+        if confidence < 0.5:
+            # Низкая уверенность - нужен больший порог для действия
+            adaptive_threshold = threshold * 1.5
+        elif confidence > 0.8:
+            # Высокая уверенность - можем действовать при меньшем пороге
+            adaptive_threshold = threshold * 0.8
+        else:
+            adaptive_threshold = threshold
+        
+        # Улучшенная логика: учитываем не только процент, но и абсолютную разницу
+        # Если разница очень маленькая, даже при большом проценте - HOLD
+        absolute_diff = abs(predicted_price - current_price)
+        min_absolute_threshold = current_price * 0.01  # Минимум 1% от цены
+        
+        if price_change_pct > adaptive_threshold and absolute_diff > min_absolute_threshold:
             return "BUY"
-        elif price_change_pct < -threshold:
+        elif price_change_pct < -adaptive_threshold and absolute_diff > min_absolute_threshold:
             return "SELL"
         else:
             return "HOLD"
@@ -180,8 +222,21 @@ class DecisionMakingAgent:
             current_price = market_data.get("current_price", 0)
             predicted_price = self.predict(features)
             
-            # Принимаем решение
-            decision = self.decide(current_price, predicted_price)
+            # Вычисляем уверенность на основе истории предсказаний
+            # Если модель загружена и есть история, используем её для оценки уверенности
+            confidence = 0.5  # Базовая уверенность
+            if self.model is not None:
+                # Если модель загружена, увеличиваем уверенность
+                confidence = 0.7
+                # Если предсказание близко к текущей цене, снижаем уверенность
+                price_diff_pct = abs((predicted_price - current_price) / current_price) if current_price > 0 else 0
+                if price_diff_pct < 0.01:  # Разница меньше 1%
+                    confidence = 0.3
+                elif price_diff_pct > 0.05:  # Разница больше 5%
+                    confidence = 0.9
+            
+            # Принимаем решение с учетом уверенности
+            decision = self.decide(current_price, predicted_price, confidence=confidence)
             
             # Сохраняем в историю
             decision_record = {
@@ -190,7 +245,7 @@ class DecisionMakingAgent:
                 "current_price": current_price,
                 "predicted_price": predicted_price,
                 "decision": decision,
-                "confidence": abs((predicted_price - current_price) / current_price) if current_price > 0 else 0
+                "confidence": confidence
             }
             self.decision_history.append(decision_record)
             

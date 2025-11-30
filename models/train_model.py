@@ -136,7 +136,10 @@ def train_model(ticker: str = "AAPL", model_type: str = "random_forest",
     if model_type == "random_forest":
         model = RandomForestRegressor(
             n_estimators=100,
-            max_depth=10,
+            max_depth=5,  # Уменьшено с 10 до 5 для предотвращения переобучения
+            min_samples_split=10,  # Минимум примеров для разделения узла
+            min_samples_leaf=5,  # Минимум примеров в листе
+            max_features='sqrt',  # Ограничение признаков для каждого дерева
             random_state=42,
             n_jobs=-1
         )
