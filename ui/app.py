@@ -226,7 +226,12 @@ if page == "Overview":
             # Всегда получаем свежие данные (без кэширования)
             # Проверяем, была ли нажата кнопка обновления
             force_refresh = st.session_state.get('force_refresh', False)
-            df = coordinator.get_market_dataframe(period=selected_period, interval=selected_interval, force_refresh=force_refresh)
+            try:
+                # Пробуем вызвать с force_refresh (новая версия)
+                df = coordinator.get_market_dataframe(period=selected_period, interval=selected_interval, force_refresh=force_refresh)
+            except TypeError:
+                # Если метод не поддерживает force_refresh (старая версия), вызываем без него
+                df = coordinator.get_market_dataframe(period=selected_period, interval=selected_interval)
             st.session_state.force_refresh = False  # Сбрасываем флаг
         
         if not df.empty:
