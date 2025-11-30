@@ -51,13 +51,26 @@ class MarketMonitoringAgent:
             # Вычисляем технические индикаторы (как в train_model.py)
             df['MA5'] = df['Close'].rolling(window=5).mean()
             df['MA20'] = df['Close'].rolling(window=20).mean()
+            df['MA50'] = df['Close'].rolling(window=50).mean()
             df['Returns'] = df['Close'].pct_change()
             df['Returns_5'] = df['Returns'].rolling(window=5).mean()
             df['Returns_20'] = df['Returns'].rolling(window=20).mean()
             df['Volatility'] = df['Returns'].rolling(window=20).std()
+            
+            # Тренд и импульс (важно для предсказания роста)
+            df['Trend'] = (df['Close'] - df['Close'].shift(5)) / df['Close'].shift(5)  # 5-дневный тренд
+            df['Momentum'] = df['Close'] / df['Close'].shift(10) - 1  # 10-дневный импульс
+            
             df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
             df['Volume_ratio'] = df['Volume'] / df['Volume_MA']
             df['HL_spread'] = (df['High'] - df['Low']) / df['Close']
+            
+            # RSI (Relative Strength Index)
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            df['RSI'] = 100 - (100 / (1 + rs))
             
             self.last_update = datetime.now()
             
@@ -75,12 +88,16 @@ class MarketMonitoringAgent:
                     "indicators": {
                         "MA5": float(last_row['MA5']) if not pd.isna(last_row['MA5']) else None,
                         "MA20": float(last_row['MA20']) if not pd.isna(last_row['MA20']) else None,
+                        "MA50": float(last_row['MA50']) if not pd.isna(last_row['MA50']) else None,
                         "volatility": float(last_row['Volatility']) if not pd.isna(last_row['Volatility']) else None,
                         "returns": float(last_row['Returns']) if not pd.isna(last_row['Returns']) else None,
                         "returns_5": float(last_row['Returns_5']) if not pd.isna(last_row['Returns_5']) else None,
                         "returns_20": float(last_row['Returns_20']) if not pd.isna(last_row['Returns_20']) else None,
+                        "trend": float(last_row['Trend']) if not pd.isna(last_row['Trend']) else None,
+                        "momentum": float(last_row['Momentum']) if not pd.isna(last_row['Momentum']) else None,
                         "volume_ratio": float(last_row['Volume_ratio']) if not pd.isna(last_row['Volume_ratio']) else None,
                         "hl_spread": float(last_row['HL_spread']) if not pd.isna(last_row['HL_spread']) else None,
+                        "RSI": float(last_row['RSI']) if not pd.isna(last_row['RSI']) else None,
                     },
                     "returns": df['Returns'].tolist()[-20:]  # Последние 20 значений для lag features
                 },
@@ -136,13 +153,22 @@ class MarketMonitoringAgent:
             if not df.empty:
                 df['MA5'] = df['Close'].rolling(window=5).mean()
                 df['MA20'] = df['Close'].rolling(window=20).mean()
+                df['MA50'] = df['Close'].rolling(window=50).mean()
                 df['Returns'] = df['Close'].pct_change()
                 df['Returns_5'] = df['Returns'].rolling(window=5).mean()
                 df['Returns_20'] = df['Returns'].rolling(window=20).mean()
                 df['Volatility'] = df['Returns'].rolling(window=20).std()
+                df['Trend'] = (df['Close'] - df['Close'].shift(5)) / df['Close'].shift(5)
+                df['Momentum'] = df['Close'] / df['Close'].shift(10) - 1
                 df['Volume_MA'] = df['Volume'].rolling(window=20).mean()
                 df['Volume_ratio'] = df['Volume'] / df['Volume_MA']
                 df['HL_spread'] = (df['High'] - df['Low']) / df['Close']
+                # RSI
+                delta = df['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rs = gain / loss
+                df['RSI'] = 100 - (100 / (1 + rs))
             
             return df
         except Exception as e:

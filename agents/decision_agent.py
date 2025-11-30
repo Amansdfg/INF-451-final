@@ -78,14 +78,23 @@ class DecisionMakingAgent:
             features.append(ma5 / ma20 if ma20 != 0 else 1.0)
             # 8. Price_MA20_ratio
             features.append(current_price / ma20 if ma20 != 0 else 1.0)
-            # 9. Volume_ratio
+            # 9. Price_MA50_ratio (новый признак)
+            ma50 = indicators.get("MA50", 0) or 0
+            features.append(current_price / ma50 if ma50 != 0 else 1.0)
+            # 10. Trend (5-дневный тренд)
+            features.append(indicators.get("trend", 0) or 0)
+            # 11. Momentum (10-дневный импульс)
+            features.append(indicators.get("momentum", 0) or 0)
+            # 12. Volume_ratio
             features.append(indicators.get("volume_ratio", 0) or 0)
-            # 10. HL_spread
+            # 13. HL_spread
             features.append(indicators.get("hl_spread", 0) or 0)
-            # 11. Close (текущая цена)
+            # 14. RSI (новый признак)
+            features.append(indicators.get("RSI", 50) or 50)  # По умолчанию 50 (нейтральный)
+            # 15. Close (текущая цена)
             features.append(current_price)
             
-            # 12-16. Return_lag_1 through Return_lag_5
+            # 16-20. Return_lag_1 through Return_lag_5
             if returns_list:
                 # Берем последние 5 значений (lag features)
                 lag_returns = returns_list[-5:] if len(returns_list) >= 5 else returns_list
@@ -121,27 +130,23 @@ class DecisionMakingAgent:
             raw_prediction = self.model.predict(features)[0]
             current_price = features[0, -2] if len(features[0]) > 10 else features[0, -1]
             
-            # Сглаживание предсказания: если предсказание слишком сильно отличается,
-            # применяем консервативный подход
+            # Доверяем модели - используем предсказание напрямую
+            # Только минимальная проверка на разумность (не отрицательная цена)
+            if raw_prediction <= 0:
+                # Если модель предсказала отрицательную цену, используем текущую цену
+                return float(current_price)
+            
+            # Легкое сглаживание только для очень экстремальных случаев (>20% изменения)
+            # Это позволяет модели правильно предсказывать сильные движения
             price_change_pct = (raw_prediction - current_price) / current_price if current_price > 0 else 0
             
-            # Ограничиваем экстремальные предсказания (больше 10% изменения)
-            if abs(price_change_pct) > 0.10:
-                # Если предсказание слишком экстремальное, сглаживаем его
-                max_change = 0.10 if price_change_pct > 0 else -0.10
+            if abs(price_change_pct) > 0.20:  # Только если изменение больше 20%
+                # Ограничиваем только очень экстремальные предсказания
+                max_change = 0.20 if price_change_pct > 0 else -0.20
                 smoothed_prediction = current_price * (1 + max_change)
             else:
+                # Для изменений до 20% - используем предсказание модели как есть
                 smoothed_prediction = raw_prediction
-            
-            # Используем скользящее среднее с предыдущими предсказаниями для сглаживания
-            if len(self.decision_history) > 0:
-                # Берем последние 3 предсказания
-                recent_predictions = [d.get("predicted_price", current_price) 
-                                    for d in self.decision_history[-3:]]
-                if recent_predictions:
-                    avg_recent = np.mean(recent_predictions)
-                    # Взвешенное среднее: 70% новое предсказание, 30% среднее предыдущих
-                    smoothed_prediction = 0.7 * smoothed_prediction + 0.3 * avg_recent
             
             return float(smoothed_prediction)
         except Exception as e:

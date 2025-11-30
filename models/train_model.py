@@ -42,6 +42,11 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     # Price ratios
     data['MA5_MA20_ratio'] = data['MA5'] / data['MA20']
     data['Price_MA20_ratio'] = data['Close'] / data['MA20']
+    data['Price_MA50_ratio'] = data['Close'] / data['MA50']
+    
+    # Тренд и импульс (важно для предсказания роста)
+    data['Trend'] = (data['Close'] - data['Close'].shift(5)) / data['Close'].shift(5)  # 5-дневный тренд
+    data['Momentum'] = data['Close'] / data['Close'].shift(10) - 1  # 10-дневный импульс
     
     # Volume indicators
     data['Volume_MA'] = data['Volume'].rolling(window=20).mean()
@@ -49,6 +54,13 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # High-Low spread
     data['HL_spread'] = (data['High'] - data['Low']) / data['Close']
+    
+    # RSI (Relative Strength Index) - индикатор силы тренда
+    delta = data['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    data['RSI'] = 100 - (100 / (1 + rs))
     
     # Target: будущая цена (сдвигаем на 1 день вперед)
     data['Future_Price'] = data['Close'].shift(-1)
@@ -86,8 +98,10 @@ def prepare_training_data(ticker: str = "AAPL", period: str = "2y") -> tuple:
     feature_columns = [
         'MA5', 'MA20', 'Volatility',
         'Returns', 'Returns_5', 'Returns_20',
-        'MA5_MA20_ratio', 'Price_MA20_ratio',
+        'MA5_MA20_ratio', 'Price_MA20_ratio', 'Price_MA50_ratio',
+        'Trend', 'Momentum',  # Добавлены тренд и импульс
         'Volume_ratio', 'HL_spread',
+        'RSI',  # Добавлен RSI
         'Close'
     ]
     
