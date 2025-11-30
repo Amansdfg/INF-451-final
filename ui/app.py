@@ -346,7 +346,7 @@ if page == "Overview":
                         font=dict(color="white", size=12)
                     )
                 
-                st.plotly_chart(fig_price, use_container_width=True)
+                st.plotly_chart(fig_price, width='stretch')
             
             with col2:
                 st.subheader("📊 Объем торгов")
@@ -366,7 +366,7 @@ if page == "Overview":
                     height=400
                 )
                 
-                st.plotly_chart(fig_volume, use_container_width=True)
+                st.plotly_chart(fig_volume, width='stretch')
             
             # Информация о портфеле
             st.subheader("💼 Портфель")
@@ -381,7 +381,7 @@ if page == "Overview":
                     }
                     for ticker, info in portfolio_summary['holdings'].items()
                 ])
-                st.dataframe(holdings_df, use_container_width=True)
+                st.dataframe(holdings_df, width='stretch')
             else:
                 st.info("Портфель пуст. Запустите симуляцию для начала торговли.")
 
@@ -574,7 +574,7 @@ elif page == "Real-time Simulation":
                     }
                     for r in st.session_state.cycle_results[-10:]
                 ])
-                st.dataframe(cycles_df, use_container_width=True)
+                st.dataframe(cycles_df, width='stretch')
             else:
                 st.error(f"Ошибка: {latest_result.get('message', 'Unknown error')}")
         
@@ -593,7 +593,7 @@ elif page == "Real-time Simulation":
                 }
                 for log in comm_log[-20:]
             ])
-            st.dataframe(comm_df, use_container_width=True)
+            st.dataframe(comm_df, width='stretch')
         else:
             st.info("Лог коммуникации пуст. Запустите цикл агентов.")
 
@@ -694,7 +694,7 @@ elif page == "ML Model":
                 height=500
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             
             # График ошибок
             errors = y_test[-n_points:] - y_pred[-n_points:]
@@ -718,7 +718,7 @@ elif page == "ML Model":
                 height=400
             )
             
-            st.plotly_chart(fig_errors, use_container_width=True)
+            st.plotly_chart(fig_errors, width='stretch')
 
 
 # Страница Trade History
@@ -844,7 +844,7 @@ elif page == "Trade History":
                         height=500
                     )
                     
-                    st.plotly_chart(fig_pnl, use_container_width=True)
+                    st.plotly_chart(fig_pnl, width='stretch')
             
             # Статистика
             st.divider()
@@ -992,7 +992,7 @@ elif page == "Database Status":
                         if data and 'password_hash' in data[0]:
                             for d in data:
                                 d['password_hash'] = '***скрыто***'
-                        st.dataframe(pd.DataFrame(data), use_container_width=True)
+                        st.dataframe(pd.DataFrame(data), width='stretch')
                     else:
                         st.info("Таблица пуста")
         
@@ -1087,7 +1087,7 @@ elif page == "Database Status":
                         # Скрываем пароли
                         if 'password_hash' in df.columns:
                             df['password_hash'] = '***скрыто***'
-                        st.dataframe(df, use_container_width=True)
+                        st.dataframe(df, width='stretch')
                         st.success(f"✅ Найдено записей: {len(results)}")
                     else:
                         st.info("Запрос выполнен, но результатов нет")
@@ -1126,7 +1126,7 @@ elif page == "Database Status":
                     }
                     for h in holdings
                 ])
-                st.dataframe(holdings_df, use_container_width=True)
+                st.dataframe(holdings_df, width='stretch')
         else:
             st.warning("⚠️ Портфель не найден")
     except Exception as e:
