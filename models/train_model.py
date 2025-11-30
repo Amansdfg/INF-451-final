@@ -115,11 +115,12 @@ def prepare_training_data(ticker: str = "AAPL", period: str = "2y") -> tuple:
     
     X = df[feature_columns].values
     y = df['Future_Price'].values
+    dates = df.index.values  # Сохраняем даты
     
     print(f"Features shape: {X.shape}")
     print(f"Target shape: {y.shape}")
     
-    return X, y, feature_columns
+    return X, y, feature_columns, dates
 
 
 def train_model(ticker: str = "AAPL", model_type: str = "random_forest", 
@@ -137,11 +138,16 @@ def train_model(ticker: str = "AAPL", model_type: str = "random_forest",
         Обученная модель и метрики
     """
     # Подготавливаем данные
-    X, y, feature_columns = prepare_training_data(ticker, period)
+    X, y, feature_columns, dates = prepare_training_data(ticker, period)
     
     # Разделяем на train/test
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, random_state=42, shuffle=False
+    )
+    
+    # Разделяем даты соответственно
+    dates_train, dates_test = train_test_split(
+        dates, test_size=test_size, random_state=42, shuffle=False
     )
     
     print(f"Train size: {X_train.shape[0]}, Test size: {X_test.shape[0]}")
@@ -202,7 +208,7 @@ def train_model(ticker: str = "AAPL", model_type: str = "random_forest",
     joblib.dump(model, model_path)
     print(f"\nModel saved to {model_path}")
     
-    return model, metrics, (X_test, y_test, y_test_pred)
+    return model, metrics, (X_test, y_test, y_test_pred, dates_test)
 
 
 if __name__ == "__main__":

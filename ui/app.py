@@ -664,66 +664,171 @@ elif page == "ML Model":
         
         # График сравнения
         if 'test_data' in st.session_state:
-            X_test, y_test, y_pred = st.session_state.test_data
+            test_data = st.session_state.test_data
+            if len(test_data) == 4:
+                X_test, y_test, y_pred, dates_test = test_data
+            else:
+                # Обратная совместимость со старым форматом
+                X_test, y_test, y_pred = test_data
+                dates_test = None
             
             st.divider()
             st.subheader("📈 Сравнение реальных и предсказанных цен")
             
-            # Берем последние 100 точек для визуализации
-            n_points = min(100, len(y_test))
-            indices = np.arange(len(y_test))[-n_points:]
+            # Настройки отображения
+            col_period1, col_period2 = st.columns(2)
+            with col_period1:
+                # Выбор количества точек для отображения
+                max_points = len(y_test)
+                display_points = st.slider(
+                    "Количество точек для отображения",
+                    min_value=min(20, max_points),
+                    max_value=max_points,
+                    value=min(100, max_points),
+                    step=10,
+                    help="Выберите, сколько точек показать на графике"
+                )
+            
+            with col_period2:
+                # Выбор части данных (начало/конец/все)
+                display_mode = st.radio(
+                    "Показать",
+                    options=["Все данные", "Начало", "Конец"],
+                    horizontal=True,
+                    help="Выберите, какую часть данных показать"
+                )
+            
+            # Определяем, какие данные показывать
+            if display_mode == "Все данные":
+                start_idx = 0
+                end_idx = display_points
+            elif display_mode == "Начало":
+                start_idx = 0
+                end_idx = display_points
+            else:  # Конец
+                start_idx = max(0, len(y_test) - display_points)
+                end_idx = len(y_test)
+            
+            # Берем нужные данные
+            y_test_display = y_test[start_idx:end_idx]
+            y_pred_display = y_pred[start_idx:end_idx]
+            
+            # Используем даты, если они есть
+            if dates_test is not None:
+                dates_display = pd.to_datetime(dates_test[start_idx:end_idx])
+                x_data = dates_display
+                x_title = "Дата"
+                hover_template = '<b>Дата:</b> %{x|%Y-%m-%d}<br><b>Цена:</b> $%{y:.2f}<extra></extra>'
+            else:
+                # Fallback на индексы, если дат нет
+                x_data = np.arange(start_idx, end_idx)
+                x_title = "Индекс тестового примера"
+                hover_template = '<b>Индекс:</b> %{x}<br><b>Цена:</b> $%{y:.2f}<extra></extra>'
             
             fig = go.Figure()
             
             fig.add_trace(go.Scatter(
-                x=indices,
-                y=y_test[-n_points:],
-                mode='lines',
+                x=x_data,
+                y=y_test_display,
+                mode='lines+markers',
                 name='Реальная цена',
-                line=dict(color='blue', width=2)
+                line=dict(color='#1f77b4', width=2),
+                marker=dict(size=5),
+                hovertemplate=hover_template.replace('Цена', 'Реальная цена')
             ))
             
             fig.add_trace(go.Scatter(
-                x=indices,
-                y=y_pred[-n_points:],
-                mode='lines',
+                x=x_data,
+                y=y_pred_display,
+                mode='lines+markers',
                 name='Предсказанная цена',
-                line=dict(color='red', width=2, dash='dash')
+                line=dict(color='red', width=2, dash='dash'),
+                marker=dict(size=5, symbol='circle'),
+                hovertemplate=hover_template.replace('Цена', 'Предсказанная цена')
             ))
             
+            # Добавляем информацию о периоде
+            if dates_test is not None and len(dates_display) > 0:
+                period_info = f"Период: {dates_display[0].strftime('%Y-%m-%d')} - {dates_display[-1].strftime('%Y-%m-%d')}"
+            else:
+                period_info = f"Показано {len(y_test_display)} точек"
+            
             fig.update_layout(
-                title="Реальные vs Предсказанные цены",
-                xaxis_title="Индекс тестового примера",
+                title=f"Реальные vs Предсказанные цены | {period_info}",
+                xaxis_title=x_title,
                 yaxis_title="Цена ($)",
                 hovermode='x unified',
-                height=500
+                height=500,
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                xaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='lightgray'
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='lightgray'
+                )
             )
             
             st.plotly_chart(fig, width='stretch')
             
             # График ошибок
-            errors = y_test[-n_points:] - y_pred[-n_points:]
+            errors = y_test_display - y_pred_display
             
             fig_errors = go.Figure()
             fig_errors.add_trace(go.Scatter(
-                x=indices,
+                x=x_data,
                 y=errors,
                 mode='lines+markers',
                 name='Ошибка предсказания',
-                line=dict(color='orange', width=1),
-                marker=dict(size=4)
+                line=dict(color='orange', width=2),
+                marker=dict(size=5),
+                hovertemplate=hover_template.replace('Цена', 'Ошибка').replace('$', '')
             ))
             
-            fig_errors.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig_errors.add_hline(y=0, line_dash="dash", line_color="gray", 
+                                annotation_text="Нулевая ошибка")
+            
+            # Вычисляем среднюю ошибку
+            mean_error = np.mean(np.abs(errors))
+            fig_errors.add_hline(y=mean_error, line_dash="dot", line_color="blue",
+                                annotation_text=f"Средняя ошибка: ${mean_error:.2f}")
+            fig_errors.add_hline(y=-mean_error, line_dash="dot", line_color="blue")
             
             fig_errors.update_layout(
-                title="Ошибки предсказания",
-                xaxis_title="Индекс тестового примера",
+                title=f"Ошибки предсказания | {period_info}",
+                xaxis_title=x_title,
                 yaxis_title="Ошибка ($)",
-                height=400
+                height=400,
+                hovermode='x unified',
+                showlegend=True,
+                xaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='lightgray'
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='lightgray'
+                )
             )
             
             st.plotly_chart(fig_errors, width='stretch')
+            
+            # Статистика ошибок
+            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+            with col_stat1:
+                st.metric("Средняя ошибка", f"${np.mean(np.abs(errors)):.2f}")
+            with col_stat2:
+                st.metric("Макс. ошибка", f"${np.max(np.abs(errors)):.2f}")
+            with col_stat3:
+                st.metric("Мин. ошибка", f"${np.min(np.abs(errors)):.2f}")
+            with col_stat4:
+                st.metric("Среднекв. ошибка", f"${np.sqrt(np.mean(errors**2)):.2f}")
 
 
 # Страница Trade History
