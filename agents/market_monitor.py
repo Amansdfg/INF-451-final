@@ -135,20 +135,27 @@ class MarketMonitoringAgent:
         except:
             return None
     
-    def get_dataframe(self, period: str = "1mo", interval: str = "1d") -> pd.DataFrame:
+    def get_dataframe(self, period: str = "1mo", interval: str = "1d", force_refresh: bool = False) -> pd.DataFrame:
         """
         Получает данные в виде DataFrame для визуализации
         
         Args:
             period: Период данных
             interval: Интервал
+            force_refresh: Принудительно обновить данные (игнорировать кэш)
         
         Returns:
             DataFrame с данными
         """
         try:
             stock = yf.Ticker(self.ticker)
-            df = stock.history(period=period, interval=interval)
+            # Всегда получаем свежие данные
+            # Используем более длинный период для получения последних данных
+            if force_refresh or period == "1d" or period == "5d":
+                # Для коротких периодов используем более свежие данные
+                df = stock.history(period=period, interval=interval, prepost=True)
+            else:
+                df = stock.history(period=period, interval=interval)
             
             if not df.empty:
                 df['MA5'] = df['Close'].rolling(window=5).mean()

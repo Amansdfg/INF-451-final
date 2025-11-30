@@ -122,9 +122,9 @@ class AgentCoordinator:
                 "timestamp": datetime.now().isoformat()
             }
     
-    def get_market_dataframe(self, period: str = "1mo", interval: str = "1d"):
+    def get_market_dataframe(self, period: str = "1mo", interval: str = "1d", force_refresh: bool = False):
         """Получает данные рынка в виде DataFrame"""
-        return self.market_agent.get_dataframe(period, interval)
+        return self.market_agent.get_dataframe(period, interval, force_refresh=force_refresh)
     
     def get_communication_log(self) -> List[Dict]:
         """Возвращает лог коммуникации"""

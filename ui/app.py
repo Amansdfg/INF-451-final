@@ -213,16 +213,37 @@ if page == "Overview":
             **Тикер:** {coordinator.ticker}
             """)
         
+        # Кнопка обновления данных
+        col_refresh1, col_refresh2 = st.columns([1, 10])
+        with col_refresh1:
+            if st.button("🔄 Обновить данные", help="Обновить данные с Yahoo Finance", type="primary"):
+                # Устанавливаем флаг для принудительного обновления
+                st.session_state.force_refresh = True
+                st.rerun()
+        
         # Получаем данные рынка с выбранными параметрами
-        with st.spinner(f"Загрузка данных за {selected_period_label}..."):
-            df = coordinator.get_market_dataframe(period=selected_period, interval=selected_interval)
+        with st.spinner(f"Загрузка свежих данных за {selected_period_label}..."):
+            # Всегда получаем свежие данные (без кэширования)
+            # Проверяем, была ли нажата кнопка обновления
+            force_refresh = st.session_state.get('force_refresh', False)
+            df = coordinator.get_market_dataframe(period=selected_period, interval=selected_interval, force_refresh=force_refresh)
+            st.session_state.force_refresh = False  # Сбрасываем флаг
         
         if not df.empty:
+            # Показываем время последнего обновления
+            last_update_time = datetime.now().strftime("%H:%M:%S")
+            st.caption(f"🕐 Последнее обновление: {last_update_time}")
+            
             col1, col2, col3, col4 = st.columns(4)
             
             current_price = df['Close'].iloc[-1]
-            price_change = df['Close'].iloc[-1] - df['Close'].iloc[-2]
-            price_change_pct = (price_change / df['Close'].iloc[-2]) * 100
+            # Безопасное вычисление изменения цены
+            if len(df) > 1:
+                price_change = df['Close'].iloc[-1] - df['Close'].iloc[-2]
+                price_change_pct = (price_change / df['Close'].iloc[-2]) * 100
+            else:
+                price_change = 0
+                price_change_pct = 0
             
             with col1:
                 st.metric("Текущая цена", f"${current_price:.2f}", 
@@ -248,15 +269,35 @@ if page == "Overview":
             
             with col1:
                 st.subheader("📊 График цен")
+                
+                # Показываем информацию о данных
+                data_info = f"Данных: {len(df)} точек | Период: {df.index[0].strftime('%Y-%m-%d')} - {df.index[-1].strftime('%Y-%m-%d')}"
+                st.caption(data_info)
+                
                 fig_price = go.Figure()
                 
+                # Основная линия цены
                 fig_price.add_trace(go.Scatter(
                     x=df.index,
                     y=df['Close'],
-                    mode='lines',
+                    mode='lines+markers',
                     name='Цена закрытия',
-                    line=dict(color='#1f77b4', width=2)
+                    line=dict(color='#1f77b4', width=2),
+                    marker=dict(size=4),
+                    hovertemplate='<b>%{y:.2f}</b><br>%{x}<extra></extra>'
                 ))
+                
+                # Добавляем последнюю цену как отдельную точку
+                if len(df) > 0:
+                    last_price = df['Close'].iloc[-1]
+                    fig_price.add_trace(go.Scatter(
+                        x=[df.index[-1]],
+                        y=[last_price],
+                        mode='markers',
+                        name='Текущая цена',
+                        marker=dict(size=12, color='green', symbol='circle'),
+                        hovertemplate=f'<b>Текущая: ${last_price:.2f}</b><br>%{{x}}<extra></extra>'
+                    ))
                 
                 if 'MA5' in df.columns:
                     fig_price.add_trace(go.Scatter(
@@ -277,12 +318,33 @@ if page == "Overview":
                     ))
                 
                 fig_price.update_layout(
-                    title=f"Цена акции {coordinator.ticker}",
+                    title=f"Цена акции {coordinator.ticker} (обновлено: {datetime.now().strftime('%H:%M:%S')})",
                     xaxis_title="Дата",
                     yaxis_title="Цена ($)",
                     hovermode='x unified',
-                    height=400
+                    height=400,
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
+                
+                # Добавляем аннотацию с текущей ценой
+                if len(df) > 0:
+                    fig_price.add_annotation(
+                        x=df.index[-1],
+                        y=df['Close'].iloc[-1],
+                        text=f"${df['Close'].iloc[-1]:.2f}",
+                        showarrow=True,
+                        arrowhead=2,
+                        arrowsize=1,
+                        arrowwidth=2,
+                        arrowcolor="green",
+                        ax=0,
+                        ay=-40,
+                        bgcolor="rgba(0,0,0,0.8)",
+                        bordercolor="green",
+                        borderwidth=2,
+                        font=dict(color="white", size=12)
+                    )
                 
                 st.plotly_chart(fig_price, use_container_width=True)
             
