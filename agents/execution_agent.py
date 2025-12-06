@@ -72,6 +72,41 @@ class ExecutionAgent:
             self.db_manager.create_portfolio(self.user_id, self.initial_balance)
             self.balance = self.initial_balance
             self.initial_balance_set = True
+            
+            # АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ: Сразу создаем 10 акций Apple при создании портфеля
+            try:
+                import yfinance as yf
+                stock = yf.Ticker(self.ticker)
+                df = stock.history(period="1d", interval="1d")
+                if not df.empty:
+                    current_price = float(df['Close'].iloc[-1])
+                    # Покупаем ровно 10 акций
+                    shares = 10
+                    cost = shares * current_price
+                    
+                    # Проверяем, хватает ли денег
+                    if self.balance >= cost:
+                        self.balance -= cost
+                        
+                        # Сохраняем в портфель
+                        self.portfolio[self.ticker] = {
+                            "shares": shares,
+                            "avg_price": current_price,
+                            "total_cost": cost
+                        }
+                        
+                        # Сохраняем в БД
+                        self.db_manager.add_trade(
+                            self.user_id, self.ticker, "BUY", shares, current_price,
+                            cost, self.balance, 0.8
+                        )
+                        self.db_manager.update_holding(
+                            self.user_id, self.ticker, shares, current_price, cost
+                        )
+                        self.db_manager.update_portfolio_balance(self.user_id, self.balance)
+            except Exception as e:
+                # Если ошибка - просто продолжаем без акций
+                print(f"Error auto-initializing portfolio: {e}")
         
         # Загружаем холдинги
         holdings = self.db_manager.get_holdings(self.user_id)
@@ -82,6 +117,51 @@ class ExecutionAgent:
                 "avg_price": holding['avg_price'],
                 "total_cost": holding['total_cost']
             }
+        
+        # Если портфель существует, но акций нет - автоматически инициализируем 10 акциями
+        if self.use_db and len(self.portfolio) == 0:
+            trade_history = self.db_manager.get_trade_history(self.user_id)
+            if trade_history.empty:
+                # Портфель существует, но акций нет - создаем 10 акций Apple
+                try:
+                    import yfinance as yf
+                    stock = yf.Ticker(self.ticker)
+                    df = stock.history(period="1d", interval="1d")
+                    if not df.empty:
+                        current_price = float(df['Close'].iloc[-1])
+                        # Покупаем ровно 10 акций
+                        shares = 10
+                        cost = shares * current_price
+                        
+                        # Проверяем, хватает ли денег (если баланс меньше, используем весь баланс)
+                        if self.balance >= cost:
+                            self.balance -= cost
+                        else:
+                            # Если денег не хватает, покупаем сколько можем
+                            shares = int(self.balance / current_price) if current_price > 0 else 0
+                            cost = shares * current_price
+                            self.balance -= cost
+                        
+                        if shares > 0:
+                            # Сохраняем в портфель
+                            self.portfolio[self.ticker] = {
+                                "shares": shares,
+                                "avg_price": current_price,
+                                "total_cost": cost
+                            }
+                            
+                            # Сохраняем в БД
+                            self.db_manager.add_trade(
+                                self.user_id, self.ticker, "BUY", shares, current_price,
+                                cost, self.balance, 0.8
+                            )
+                            self.db_manager.update_holding(
+                                self.user_id, self.ticker, shares, current_price, cost
+                            )
+                            self.db_manager.update_portfolio_balance(self.user_id, self.balance)
+                except Exception as e:
+                    # Если ошибка - просто продолжаем без акций
+                    print(f"Error auto-initializing existing portfolio: {e}")
     
     def load_history(self):
         """Загружает историю торгов из файла (только если use_db=False)"""
