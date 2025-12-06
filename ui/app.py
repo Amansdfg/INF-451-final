@@ -85,6 +85,43 @@ if st.session_state.user_id and st.session_state.coordinator is None:
     
     # Автоматически инициализируем с дефолтным тикером
     init_coordinator(st.session_state.current_ticker, current_balance)
+    
+    # Принудительная проверка и создание акций, если их нет
+    if st.session_state.coordinator:
+        try:
+            holdings = db_manager.get_holdings(st.session_state.user_id)
+            trade_history = db_manager.get_trade_history(st.session_state.user_id)
+            
+            # Если нет акций и нет истории - создаем 10 акций Apple
+            if len(holdings) == 0 and trade_history.empty:
+                # Получаем текущую цену
+                market_data = st.session_state.coordinator.market_agent.get_market_data(period="1d", interval="1d")
+                if market_data.get("type") == "market_update":
+                    current_price = market_data.get("current_price", 0)
+                    if current_price > 0:
+                        # Покупаем 10 акций
+                        shares = 10
+                        cost = shares * current_price
+                        new_balance = current_balance - cost
+                        
+                        if new_balance >= 0:
+                            # Сохраняем в БД
+                            db_manager.add_trade(
+                                st.session_state.user_id, st.session_state.current_ticker, "BUY", 
+                                shares, current_price, cost, new_balance, 0.8
+                            )
+                            db_manager.update_holding(
+                                st.session_state.user_id, st.session_state.current_ticker, 
+                                shares, current_price, cost
+                            )
+                            db_manager.update_portfolio_balance(st.session_state.user_id, new_balance)
+                            
+                            # Перезагружаем координатор чтобы он подхватил новые акции
+                            init_coordinator(st.session_state.current_ticker, new_balance, force_reinit=True)
+                            st.rerun()
+        except Exception as e:
+            # Если ошибка - просто продолжаем
+            pass
 
 
 # Sidebar

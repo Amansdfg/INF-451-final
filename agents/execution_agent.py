@@ -107,6 +107,8 @@ class ExecutionAgent:
             except Exception as e:
                 # Если ошибка - просто продолжаем без акций
                 print(f"Error auto-initializing portfolio: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Загружаем холдинги
         holdings = self.db_manager.get_holdings(self.user_id)
@@ -162,6 +164,8 @@ class ExecutionAgent:
                 except Exception as e:
                     # Если ошибка - просто продолжаем без акций
                     print(f"Error auto-initializing existing portfolio: {e}")
+                    import traceback
+                    traceback.print_exc()
     
     def load_history(self):
         """Загружает историю торгов из файла (только если use_db=False)"""
