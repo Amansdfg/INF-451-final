@@ -108,6 +108,10 @@ class ExecutionAgent:
     
     def _reconstruct_portfolio(self):
         """Восстанавливает состояние портфеля из истории (только если use_db=False)"""
+        # Защита: гарантируем, что ticker установлен (на случай если метод вызывается из старого кода)
+        if not hasattr(self, 'ticker') or self.ticker is None:
+            self.ticker = "AAPL"
+        
         if self.use_db:
             return  # Используем БД
         
@@ -116,6 +120,9 @@ class ExecutionAgent:
         
         for trade in self.trade_history:
             ticker = trade.get("ticker")
+            # Защита: если ticker не указан в trade, используем self.ticker
+            if not ticker or ticker is None:
+                ticker = self.ticker
             action = trade.get("action")
             shares = trade.get("shares", 0)
             price = trade.get("price", 0)
