@@ -17,7 +17,7 @@
 3. [Introduction & Problem](#introduction--problem)
 4. [Background / Related Work](#background--related-work)
 5. [System Design & Diagrams](#system-design--diagrams)
-6. [How You Built It](#how-you-built-it)
+6. [How I Built It](#how-i-built-it)
 7. [Results / What Happened](#results--what-happened)
 8. [What Worked & What Didn't](#what-worked--what-didnt)
 9. [Conclusion & Future Ideas](#conclusion--future-ideas)
@@ -348,7 +348,7 @@ User Interface
 
 ---
 
-## How You Built It
+## How I Built It
 
 ### Development Process
 
