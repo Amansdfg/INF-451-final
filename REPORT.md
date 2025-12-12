@@ -5,7 +5,7 @@
 
 **Course:** INF 451  
 **Project:** Multi-Agent Financial AI Trading System  
-**Date:** November 2024  
+**Date:** December 2025  
 **Author:** Aman Kalabay
 
 ---
