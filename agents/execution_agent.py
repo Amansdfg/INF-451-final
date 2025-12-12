@@ -25,6 +25,10 @@ class ExecutionAgent:
         self.user_id = user_id
         self.initial_balance = initial_balance
         self.use_db = use_db
+        # Инициализируем ticker по умолчанию (будет использоваться если не передан из координатора)
+        # Это защита от старых версий кода, где ticker не передавался
+        if not hasattr(self, 'ticker'):
+            self.ticker = "AAPL"
         
         if use_db:
             # Используем БД
