@@ -6,7 +6,7 @@
 **Course:** INF 451  
 **Project:** Multi-Agent Financial AI Trading System  
 **Date:** November 2024  
-**Author:** [Your Name]
+**Author:** Aman Kalabay
 
 ---
 
@@ -39,8 +39,8 @@
 ║                                                              ║
 ║                      November 2024                           ║
 ║                                                              ║
-║  Author: [Your Name]                                         ║
-║  Student ID: [Your ID]                                       ║
+║  Author: Aman Kalabay                                        ║
+║  Student ID: 230103375                                       ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
