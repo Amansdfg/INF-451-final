@@ -121,19 +121,31 @@ class DecisionMakingAgent:
         Returns:
             Предсказанная цена
         """
+        # Текущая цена (Close) всегда находится на индексе 14 в массиве признаков
+        # Порядок признаков: MA5, MA20, Volatility, Returns, Returns_5, Returns_20,
+        # MA5_MA20_ratio, Price_MA20_ratio, Price_MA50_ratio, Trend, Momentum,
+        # Volume_ratio, HL_spread, RSI, Close (index 14), Return_lag_1-5
+        current_price = float(features[0, 14]) if features.shape[1] > 14 else float(features[0, -1])
+        
         if self.model is None:
             # Если модель не загружена, возвращаем консервативное предсказание
-            current_price = features[0, -2] if len(features[0]) > 10 else features[0, -1]
             return current_price * (1 + np.random.uniform(-0.01, 0.01))  # Очень маленькое изменение
         
         try:
             raw_prediction = self.model.predict(features)[0]
-            current_price = features[0, -2] if len(features[0]) > 10 else features[0, -1]
             
-            # Доверяем модели - используем предсказание напрямую
-            # Только минимальная проверка на разумность (не отрицательная цена)
+            # Проверяем, что предсказание разумное
             if raw_prediction <= 0:
                 # Если модель предсказала отрицательную цену, используем текущую цену
+                print(f"Warning: Model predicted negative price ({raw_prediction}), using current price")
+                return float(current_price)
+            
+            # Проверка на нереалистично маленькое предсказание
+            # Если предсказание меньше 1% от текущей цены, вероятно ошибка модели
+            if raw_prediction < current_price * 0.01:
+                print(f"Warning: Model predicted unrealistically low price ({raw_prediction:.2f} vs current {current_price:.2f})")
+                print(f"This usually indicates a model issue. Using current price as fallback.")
+                # Возвращаем текущую цену как fallback
                 return float(current_price)
             
             # Легкое сглаживание только для очень экстремальных случаев (>20% изменения)
@@ -151,7 +163,7 @@ class DecisionMakingAgent:
             return float(smoothed_prediction)
         except Exception as e:
             print(f"Error in prediction: {e}")
-            current_price = features[0, -2] if len(features[0]) > 10 else features[0, -1]
+            # Используем уже вычисленную current_price из начала метода
             return float(current_price)  # Возвращаем текущую цену как fallback
     
     def decide(self, current_price: float, predicted_price: float, 
