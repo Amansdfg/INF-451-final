@@ -22,13 +22,13 @@ class ExecutionAgent:
             data_dir: Директория для сохранения данных (если не используется БД)
             use_db: Использовать ли БД вместо CSV файлов
         """
+        # КРИТИЧЕСКИ ВАЖНО: Устанавливаем ticker ПЕРВЫМ, до любых других операций
+        # Это защита от ошибок в старых версиях кода
+        self.ticker = "AAPL"  # Значение по умолчанию
+        
         self.user_id = user_id
         self.initial_balance = initial_balance
         self.use_db = use_db
-        # Инициализируем ticker по умолчанию (будет использоваться если не передан из координатора)
-        # Это защита от старых версий кода, где ticker не передавался
-        if not hasattr(self, 'ticker'):
-            self.ticker = "AAPL"
         
         if use_db:
             # Используем БД
@@ -51,8 +51,9 @@ class ExecutionAgent:
     
     def _load_from_db(self):
         """Загружает портфель из БД"""
-        # Защита: если ticker не установлен (старая версия кода), используем значение по умолчанию
-        if not hasattr(self, 'ticker') or self.ticker is None:
+        # КРИТИЧЕСКАЯ ЗАЩИТА: Гарантируем, что ticker всегда установлен
+        # Это должно быть ПЕРВОЙ строкой в методе
+        if not hasattr(self, 'ticker') or self.ticker is None or self.ticker == "":
             self.ticker = "AAPL"
         
         portfolio_data = self.db_manager.get_portfolio(self.user_id)
