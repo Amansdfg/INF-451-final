@@ -47,6 +47,10 @@ class ExecutionAgent:
     
     def _load_from_db(self):
         """Загружает портфель из БД"""
+        # Защита: если ticker не установлен (старая версия кода), используем значение по умолчанию
+        if not hasattr(self, 'ticker') or self.ticker is None:
+            self.ticker = "AAPL"
+        
         portfolio_data = self.db_manager.get_portfolio(self.user_id)
         
         if portfolio_data:

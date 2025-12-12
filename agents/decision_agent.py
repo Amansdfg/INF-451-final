@@ -134,6 +134,11 @@ class DecisionMakingAgent:
         try:
             raw_prediction = self.model.predict(features)[0]
             
+            # ОТЛАДКА: Выводим информацию о предсказании
+            print(f"DEBUG Prediction: raw={raw_prediction}, current_price={current_price}, features_shape={features.shape}")
+            print(f"DEBUG Features sample (first 5): {features[0, :5]}")
+            print(f"DEBUG Close price from features[0, 14]: {features[0, 14] if features.shape[1] > 14 else 'N/A'}")
+            
             # Проверяем, что предсказание разумное
             if raw_prediction <= 0:
                 # Если модель предсказала отрицательную цену, используем текущую цену
@@ -145,6 +150,7 @@ class DecisionMakingAgent:
             if raw_prediction < current_price * 0.01:
                 print(f"Warning: Model predicted unrealistically low price ({raw_prediction:.2f} vs current {current_price:.2f})")
                 print(f"This usually indicates a model issue. Using current price as fallback.")
+                print(f"DEBUG: Model might be predicting returns or percentage change instead of price.")
                 # Возвращаем текущую цену как fallback
                 return float(current_price)
             
