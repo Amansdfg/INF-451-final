@@ -111,7 +111,7 @@ class DecisionMakingAgent:
             print(f"Error extracting features: {e}")
             return None
     
-    def predict(self, features: np.ndarray) -> float:
+    def predict(self, features: np.ndarray, current_price_from_market: float = None) -> float:
         """
         Предсказывает будущую цену с улучшенной логикой
         
@@ -125,7 +125,19 @@ class DecisionMakingAgent:
         # Порядок признаков: MA5, MA20, Volatility, Returns, Returns_5, Returns_20,
         # MA5_MA20_ratio, Price_MA20_ratio, Price_MA50_ratio, Trend, Momentum,
         # Volume_ratio, HL_spread, RSI, Close (index 14), Return_lag_1-5
-        current_price = float(features[0, 14]) if features.shape[1] > 14 else float(features[0, -1])
+        current_price_from_features = float(features[0, 14]) if features.shape[1] > 14 else float(features[0, -1])
+        
+        # Используем current_price_from_market если доступен, иначе из features
+        # Это более надежно, так как market_data содержит актуальную цену
+        if current_price_from_market is not None and current_price_from_market > 0:
+            current_price = float(current_price_from_market)
+        else:
+            current_price = current_price_from_features
+        
+        # Дополнительная проверка: если current_price слишком маленький, что-то не так
+        if current_price < 1.0:
+            print(f"ERROR: Unrealistic current_price: {current_price}. Using price from features: {current_price_from_features}")
+            current_price = current_price_from_features if current_price_from_features > 1.0 else 100.0  # Fallback
         
         if self.model is None:
             # Если модель не загружена, возвращаем консервативное предсказание
@@ -145,13 +157,16 @@ class DecisionMakingAgent:
                 print(f"Warning: Model predicted negative price ({raw_prediction}), using current price")
                 return float(current_price)
             
-            # Проверка на нереалистично маленькое предсказание
-            # Если предсказание меньше 1% от текущей цены, вероятно ошибка модели
-            if raw_prediction < current_price * 0.01:
-                print(f"Warning: Model predicted unrealistically low price ({raw_prediction:.2f} vs current {current_price:.2f})")
-                print(f"This usually indicates a model issue. Using current price as fallback.")
-                print(f"DEBUG: Model might be predicting returns or percentage change instead of price.")
-                # Возвращаем текущую цену как fallback
+            # КРИТИЧЕСКАЯ ПРОВЕРКА: Если предсказание нереалистично маленькое
+            # Проверяем несколько условий для надежности
+            min_reasonable_price = current_price * 0.01  # Минимум 1% от текущей цены
+            if raw_prediction < min_reasonable_price or raw_prediction < 1.0:
+                print(f"ERROR: Model predicted unrealistically low price!")
+                print(f"  Raw prediction: {raw_prediction:.6f}")
+                print(f"  Current price: {current_price:.2f}")
+                print(f"  Min reasonable: {min_reasonable_price:.2f}")
+                print(f"  Using current price as fallback.")
+                # ВСЕГДА возвращаем текущую цену, если предсказание слишком маленькое
                 return float(current_price)
             
             # Легкое сглаживание только для очень экстремальных случаев (>20% изменения)
@@ -243,7 +258,8 @@ class DecisionMakingAgent:
             
             # Делаем предсказание
             current_price = market_data.get("current_price", 0)
-            predicted_price = self.predict(features)
+            # Передаем current_price в predict для дополнительной проверки
+            predicted_price = self.predict(features, current_price_from_market=current_price)
             
             # Вычисляем уверенность на основе истории предсказаний
             # Если модель загружена и есть история, используем её для оценки уверенности
